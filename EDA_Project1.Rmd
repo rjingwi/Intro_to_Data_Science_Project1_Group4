@@ -1,0 +1,224 @@
+
+---
+title: "Home Field Advantage — English Premier League"
+author: "Data Analysis"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message=FALSE, warning=FALSE)
+library(tidyverse)
+library(lubridate)
+```
+
+# Slide 5: Initial EDA – Match Outcomes
+
+## Home vs Away: Outcome Breakdown
+
+```{r read-data}
+# Read the CSV (adjust encoding if necessary)
+df <- read_csv("results.csv", locale = locale(encoding = "latin1"))
+glimpse(df)
+```
+
+```{r outcomes}
+# Create outcome counts
+outcomes <- df %>%
+  mutate(Result = case_when(
+    FTR == "H" ~ "HomeWin",
+    FTR == "A" ~ "AwayWin",
+    FTR == "D" ~ "Draw",
+    TRUE ~ "Other"
+  )) %>%
+  count(Result) %>%
+  mutate(pct = n / sum(n) * 100)
+
+outcomes
+```
+
+- `% of home wins, away wins, draws`
+- `Clear skew towards home wins?`
+
+```{r outcomes-plot, fig.height=4, fig.width=6}
+# Bar chart of outcomes
+ggplot(outcomes, aes(x = Result, y = pct, fill = Result)) +
+  geom_col(show.legend = FALSE) +
+  geom_text(aes(label = paste0(round(pct,1), "%")), vjust = -0.5) +
+  labs(title = "Home vs Away: Outcome Breakdown",
+       x = "", y = "% of matches") +
+  theme_minimal()
+```
+
+*Suggested speaking line:* “As we can see, home teams win more often — but let’s dig deeper.”
+
+# Slide 6: Goals Scored: Home vs Away
+
+## Do Home Teams Score More Goals?
+
+```{r goals-stats}
+# Basic goal stats
+goal_stats <- df %>%
+  summarize(
+    avg_home_goals = mean(FTHG, na.rm = TRUE),
+    avg_away_goals = mean(FTAG, na.rm = TRUE)
+  )
+
+goal_stats
+```
+
+```{r goal-diff}
+# Goal difference distribution (home - away)
+df2 <- df %>%
+  mutate(goal_diff = FTHG - FTAG)
+
+# Histogram of goal differences
+ggplot(df2, aes(x = goal_diff)) +
+  geom_histogram(binwidth = 1, boundary = -0.5) +
+  labs(title = "Histogram of Goal Differences (Home - Away)",
+       x = "Goal difference (Home - Away)", y = "Count") +
+  theme_minimal()
+```
+
+```{r goals-boxplot, fig.height=4, fig.width=6}
+# Boxplot comparing home and away goals per match
+df_long <- df %>%
+  select(FTHG, FTAG) %>%
+  pivot_longer(cols = everything(), names_to = "side", values_to = "goals") %>%
+  mutate(side = if_else(side == "FTHG", "Home", "Away"))
+
+ggplot(df_long, aes(x = side, y = goals)) +
+  geom_boxplot() +
+  labs(title = "Home vs Away Goals per Match",
+       x = "", y = "Goals") +
+  theme_minimal()
+```
+
+# Slide 7: Points Per Game (PPG)
+
+## Points Earned: Home vs Away
+
+```{r points-calc}
+# Assign points per match
+df_points <- df %>%
+  mutate(
+    home_points = case_when(
+      FTR == "H" ~ 3,
+      FTR == "D" ~ 1,
+      FTR == "A" ~ 0,
+      TRUE ~ NA_real_
+    ),
+    away_points = case_when(
+      FTR == "A" ~ 3,
+      FTR == "D" ~ 1,
+      FTR == "H" ~ 0,
+      TRUE ~ NA_real_
+    )
+  )
+
+ppg_summary <- df_points %>%
+  summarize(
+    avg_home_ppg = mean(home_points, na.rm = TRUE),
+    avg_away_ppg = mean(away_points, na.rm = TRUE)
+  )
+
+ppg_summary
+```
+
+```{r ppg-plot, fig.height=4, fig.width=6}
+ppg_plot <- ppg_summary %>%
+  pivot_longer(everything(), names_to = "side", values_to = "ppg") %>%
+  mutate(side = recode(side, "avg_home_ppg" = "Home", "avg_away_ppg" = "Away"))
+
+ggplot(ppg_plot, aes(x = side, y = ppg, fill = side)) +
+  geom_col(show.legend = FALSE) +
+  geom_text(aes(label = round(ppg,2)), vjust = -0.5) +
+  labs(title = "Average Points per Match: Home vs Away", x = "", y = "Avg PPG") +
+  theme_minimal()
+```
+
+# Slide 8: Trends Over Time
+
+## Has Home Advantage Changed Over Time?
+
+```{r season-trends}
+# Ensure Season is treated consistently (some files use 'Season' as string)
+# We'll group by Season (if not present, fall back to year from DateTime)
+if("Season" %in% colnames(df)) {
+  df_season <- df %>% mutate(Season = as.character(Season))
+} else {
+  df_season <- df %>% mutate(Season = year(ymd_hms(DateTime)))
+}
+
+season_summary <- df_points %>%
+  mutate(Season = as.character(Season)) %>%
+  group_by(Season) %>%
+  summarize(
+    matches = n(),
+    pct_home_wins = mean(FTR == "H") * 100,
+    avg_home_ppg = mean(home_points, na.rm = TRUE),
+    avg_away_ppg = mean(away_points, na.rm = TRUE),
+    ppg_diff = avg_home_ppg - avg_away_ppg
+  ) %>%
+  arrange(Season)
+
+season_summary
+```
+
+```{r season-plot1, fig.height=4, fig.width=8}
+# Line graph: % home wins per season
+ggplot(season_summary, aes(x = as.integer(substr(Season,1,4)), y = pct_home_wins)) +
+  geom_line() + geom_point() +
+  labs(title = "% Home Wins per Season", x = "Season (first year)", y = "% Home Wins") +
+  theme_minimal()
+```
+
+```{r season-plot2, fig.height=4, fig.width=8}
+# Line graph: PPG difference over time
+ggplot(season_summary, aes(x = as.integer(substr(Season,1,4)), y = ppg_diff)) +
+  geom_line() + geom_point() +
+  labs(title = "Difference in Home vs Away PPG per Season (Home - Away)",
+       x = "Season (first year)", y = "PPG Difference") +
+  theme_minimal()
+```
+
+“We noticed that home advantage may be shrinking in recent years, especially during COVID-19 seasons.”
+
+# Slide 9: Possible Explanations
+
+## Why Might Home Teams Perform Better?
+
+- Crowd support and familiarity with pitch
+- Referee bias (unconscious)
+- Travel fatigue for away teams
+- Tactical adjustments at home
+
+# Slide 10: Conclusion
+
+## Is There a Real Home Advantage?
+
+- Data shows consistent advantage for home teams
+- Higher win rate, more goals, more points
+- Advantage is shrinking slightly over time
+- **Answer:** Yes, but the impact is contextual
+
+# Slide 11: Limitations & Future Work
+
+## What Could Be Improved or Expanded?
+
+- Include team strength or ranking to adjust for quality
+- Consider special cases (derbies, weather, stadium size)
+- Look at other leagues for comparison
+- Use modeling for predictive analysis
+
+---
+
+## Appendix: Data checks
+
+```{r checks}
+# Missing values overview
+map_df(df, ~sum(is.na(.))) %>% pivot_longer(everything(), names_to="col", values_to="missing")
+```
