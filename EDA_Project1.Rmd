@@ -15,13 +15,34 @@ knitr::opts_chunk$set(echo = TRUE, message=FALSE, warning=FALSE)
 library(tidyverse)
 library(lubridate)
 ```
+# Abstract
+
+The **home-field advantage** phenomenon has always been intriguing to players and fans, with the English Premier League (EPL) being the most watched, cheered and analyzed soccer league in the world. This research study investigates whether home advantage means a real competitive advantage in match win/loss results, goals scored, and points attained. Utilizing over 11,000 matches from the past 30 EPL seasons, we use exploratory data analysis (EDA) augmented by inferential statistics including t-tests. What we find is persistent home bias—home teams win more often, score more goals, and have higher points per game (PPG)—but that this has reduced slightly in the recent past, particularly during the time of the COVID-19 pandemic when crowds were reduced or even absent. The study concludes that while home-field advantage remains statistically significant, its impact becomes more contextual and conditioned by external variables such as crowd reaction and team strength.
+
+# Introduction
+
+Soccer games can be decided by many factors, not just skills and strength: the environment including sound, climate, humidity, lighting and any other factor can play a role in a match outcome. What we want to find out in this research is to what degree the home team can be advantaged playing in their home structure, with their home climate and environment, and with their home fans.
+The presence of a home field advantage is already visible by just watching a soccer game, with the home team usually being more offensive and pushing to score a goal, but it's hard to quantify this effect without using the proper data analysis and statistical testing. Our dataset offers an ideal case study to try to answer our SMART question:
+
+**Does playing at home significantly increase a Premier League team’s likelihood of winning, scoring more goals, and earning more points per game between 1993 and 2022?**
+
+We hypothesize that home teams perform significantly better on average across these metrics, but that the effect may have weakened in recent years due to tactical and technical evolution and covid-related restrictions. This project combines exploratory data visualization with inferential tests to evaluate the strength and evolution of this effect.
+
+# Literature review
+
+In past research, Courneya and Carron (1992) were among the first to popularize meta-analysis with crowd support, hometown favoritism, travel fatigue, and referee's bias as the most critical factors. Subsequent studies (Pollard, 2008) confirmed its existence in various sports and leagues and quantified the average home superiority at approximately 60% winning percentages in soccer. Later studies have investigated its psychological underpinning: Nevill and Holder (1999) found that the size of the crowd and the level of noise influence referee decisions, and Bryson et al. (2021) observed a significant decline in home advantage during COVID-19, when games were played without spectators.
+
+Blind to these results, though, is most of the prior work that posits a single mechanism across an exhaustive quantitative synthesis. This paper seeks to correct that by bringing empirical findings (win ratios, goals, points) together with statistical testing and temporal trends. The EPL is a natural experiment because it has a long history, uniform structure, and competitive equilibrium.
+
+
+
 # The Dataset
 
 ```{r read-data}
 df <- read_csv("C:/Users/Luca/OneDrive/Desktop/DATS/Intro to data sci/results.csv", locale = locale(encoding = "latin1"))
 ```
 
-We used the "English Premier League (EPL) Results" dataset by the user "Alvin" consisting of 11,113 observations of premier league games reusults and statistics from 1993 to 2022. The observed variables are:
+We used the "English Premier League (EPL) Results" dataset by the user "Alvin" on kaggle.com consisting of 11,113 observations of premier league games results and statistics from 1993 to 2022. The observed variables are:
 
 - Season: soccer season of the game (ex. 2020/2021)
 - DateTime: date of the game in yyyy-mm-dd
@@ -47,6 +68,8 @@ We used the "English Premier League (EPL) Results" dataset by the user "Alvin" c
 - HR: number of red cards shown to the home team
 - AR: number of red cards shown to the away team
 
+
+
 To find out a potential home advantage, we will consider only the final scores and ignore the halftime, fouls, shots, cards and referee data for this purpose. Other effects can be explored in a second analysis using the statistics, to find out if referees can be biased by a field effect too. 
 
 
@@ -55,15 +78,26 @@ str(df)
 
 ```
 
+# Data Cleaning and Preparation
+
+Before starting our data analysis, we must ensure that the dataset doesn't contain major inconsistencies, outliers, and missing values (NAs). The EPL data is relatively clean, as specified by the author, but small data quality issues—missing score entries can bias statistical inference and we want to keep the dataset representative of the actual population and ensure robustness.
+
+```{r}
+
+df <- df %>% drop_na(FTHG, FTAG, FTR)
+df <- df %>% filter(
+  between(FTHG, quantile(FTHG, 0.25) - 1.5*IQR(FTHG), quantile(FTHG, 0.75) + 1.5*IQR(FTHG)),
+  between(FTAG, quantile(FTAG, 0.25) - 1.5*IQR(FTAG), quantile(FTAG, 0.75) + 1.5*IQR(FTAG))
+)
+```
 
 
-# Slide 5: Initial EDA – Match Outcomes
+# Initial EDA – Match Outcomes
 
 ## Home vs Away: Outcome Breakdown
 
 
 ```{r outcomes}
-# Create outcome counts
 outcomes <- df %>%
   mutate(Result = case_when(
     FTR == "H" ~ "HomeWin",
@@ -77,11 +111,8 @@ outcomes <- df %>%
 outcomes
 ```
 
-- `% of home wins, away wins, draws`
-- `Clear skew towards home wins?`
 
-```{r outcomes-plot, fig.height=4, fig.width=6}
-# Bar chart of outcomes
+```{r}
 ggplot(outcomes, aes(x = Result, y = pct, fill = Result)) +
   geom_col(show.legend = FALSE) +
   geom_text(aes(label = paste0(round(pct,1), "%")), vjust = -0.5) +
@@ -90,9 +121,8 @@ ggplot(outcomes, aes(x = Result, y = pct, fill = Result)) +
   theme_minimal()
 ```
 
-*Suggested speaking line:* “As we can see, home teams win more often — but let’s dig deeper.”
+From a raw plotting of the percentages of win/draw/loss outcomes we can already tell that home teams win 41.6% of the games, against a 30.5% by the away teams. Considering that each team faces every opponent one time home and one time away, this already suggests that a home effect might be present.
 
-# Slide 6: Goals Scored: Home vs Away
 
 ## Do Home Teams Score More Goals?
 
@@ -120,19 +150,7 @@ ggplot(df2, aes(x = goal_diff)) +
   theme_minimal()
 ```
 
-```{r goals-boxplot, fig.height=4, fig.width=6}
-# Boxplot comparing home and away goals per match
-df_long <- df %>%
-  select(FTHG, FTAG) %>%
-  pivot_longer(cols = everything(), names_to = "side", values_to = "goals") %>%
-  mutate(side = if_else(side == "FTHG", "Home", "Away"))
-
-ggplot(df_long, aes(x = side, y = goals)) +
-  geom_boxplot() +
-  labs(title = "Home vs Away Goals per Match",
-       x = "", y = "Goals") +
-  theme_minimal()
-```
+In terms of goals scored, we can see a slightly larger average for home teams and a right-skewed histogram, suggesting that the home teams tend to score more. Since our goals scored variables contain only integers and most of them are 0,1 and 2, our analysis is limited to this plot and average.
 
 # Slide 7: Points Per Game (PPG)
 
