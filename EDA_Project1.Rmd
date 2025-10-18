@@ -84,11 +84,12 @@ Before starting our data analysis, we must ensure that the dataset doesn't conta
 
 ```{r}
 
-df <- df %>% drop_na(FTHG, FTAG, FTR)
-df <- df %>% filter(
-  between(FTHG, quantile(FTHG, 0.25) - 1.5*IQR(FTHG), quantile(FTHG, 0.75) + 1.5*IQR(FTHG)),
-  between(FTAG, quantile(FTAG, 0.25) - 1.5*IQR(FTAG), quantile(FTAG, 0.75) + 1.5*IQR(FTAG))
+df <- filter(
+  drop_na(df, FTHG, FTAG, FTR),
+  between(FTHG, quantile(df$FTHG, 0.25, na.rm = TRUE) - 1.5 * IQR(df$FTHG, na.rm = TRUE), quantile(df$FTHG, 0.75, na.rm = TRUE) + 1.5 * IQR(df$FTHG, na.rm = TRUE)),
+  between(FTAG, quantile(df$FTAG, 0.25, na.rm = TRUE) - 1.5 * IQR(df$FTAG, na.rm = TRUE), quantile(df$FTAG, 0.75, na.rm = TRUE) + 1.5 * IQR(df$FTAG, na.rm = TRUE))
 )
+
 ```
 
 
@@ -97,18 +98,17 @@ df <- df %>% filter(
 ## Home vs Away: Outcome Breakdown
 
 
-```{r outcomes}
-outcomes <- df %>%
-  mutate(Result = case_when(
-    FTR == "H" ~ "HomeWin",
-    FTR == "A" ~ "AwayWin",
-    FTR == "D" ~ "Draw",
-    TRUE ~ "Other"
-  )) %>%
-  count(Result) %>%
-  mutate(pct = n / sum(n) * 100)
+```{r}
+outcomes <- mutate(
+  count(mutate(df,Result = case_when(
+        FTR == "H" ~ "HomeWin",
+        FTR == "A" ~ "AwayWin",
+        FTR == "D" ~ "Draw",
+        TRUE ~ "Other"
+      )),Result),pct = n / sum(n) * 100)
 
 outcomes
+
 ```
 
 
@@ -126,23 +126,19 @@ From a raw plotting of the percentages of win/draw/loss outcomes we can already 
 
 ## Do Home Teams Score More Goals?
 
-```{r goals-stats}
-# Basic goal stats
-goal_stats <- df %>%
-  summarize(
-    avg_home_goals = mean(FTHG, na.rm = TRUE),
-    avg_away_goals = mean(FTAG, na.rm = TRUE)
-  )
+```{r}
+goal_stats <- summarize(
+  df,
+  avg_home_goals = mean(FTHG, na.rm = TRUE),
+  avg_away_goals = mean(FTAG, na.rm = TRUE)
+)
 
 goal_stats
 ```
 
-```{r goal-diff}
-# Goal difference distribution (home - away)
-df2 <- df %>%
-  mutate(goal_diff = FTHG - FTAG)
+```{r}
+df2 <- mutate(df, goal_diff = FTHG - FTAG)
 
-# Histogram of goal differences
 ggplot(df2, aes(x = goal_diff)) +
   geom_histogram(binwidth = 1, boundary = -0.5) +
   labs(title = "Histogram of Goal Differences (Home - Away)",
@@ -152,87 +148,85 @@ ggplot(df2, aes(x = goal_diff)) +
 
 In terms of goals scored, we can see a slightly larger average for home teams and a right-skewed histogram, suggesting that the home teams tend to score more. Since our goals scored variables contain only integers and most of them are 0,1 and 2, our analysis is limited to this plot and average.
 
-# Slide 7: Points Per Game (PPG)
+## Points Per Game (PPG): Home vs Away
 
-## Points Earned: Home vs Away
+```{r}
 
-```{r points-calc}
-# Assign points per match
-df_points <- df %>%
-  mutate(
-    home_points = case_when(
-      FTR == "H" ~ 3,
-      FTR == "D" ~ 1,
-      FTR == "A" ~ 0,
-      TRUE ~ NA_real_
-    ),
-    away_points = case_when(
-      FTR == "A" ~ 3,
-      FTR == "D" ~ 1,
-      FTR == "H" ~ 0,
-      TRUE ~ NA_real_
-    )
+df_points <- mutate(
+  df,
+  home_points = case_when(
+    FTR == "H" ~ 3,
+    FTR == "D" ~ 1,
+    FTR == "A" ~ 0,
+    TRUE ~ NA_real_
+  ),
+  away_points = case_when(
+    FTR == "A" ~ 3,
+    FTR == "D" ~ 1,
+    FTR == "H" ~ 0,
+    TRUE ~ NA_real_
   )
+)
 
-ppg_summary <- df_points %>%
-  summarize(
-    avg_home_ppg = mean(home_points, na.rm = TRUE),
-    avg_away_ppg = mean(away_points, na.rm = TRUE)
-  )
+ppg_summary <- summarize(
+  df_points,
+  avg_home_ppg = mean(home_points, na.rm = TRUE),
+  avg_away_ppg = mean(away_points, na.rm = TRUE)
+)
 
 ppg_summary
 ```
 
-```{r ppg-plot, fig.height=4, fig.width=6}
-ppg_plot <- ppg_summary %>%
-  pivot_longer(everything(), names_to = "side", values_to = "ppg") %>%
-  mutate(side = recode(side, "avg_home_ppg" = "Home", "avg_away_ppg" = "Away"))
+```{r}
+ppg_plot <- mutate(
+  pivot_longer(
+    ppg_summary,
+    everything(),
+    names_to = "side",
+    values_to = "ppg"
+  ),
+  side = recode(side, "avg_home_ppg" = "Home", "avg_away_ppg" = "Away")
+)
 
 ggplot(ppg_plot, aes(x = side, y = ppg, fill = side)) +
   geom_col(show.legend = FALSE) +
-  geom_text(aes(label = round(ppg,2)), vjust = -0.5) +
+  geom_text(aes(label = round(ppg, 2)), vjust = -0.5) +
   labs(title = "Average Points per Match: Home vs Away", x = "", y = "Avg PPG") +
   theme_minimal()
 ```
 
-# Slide 8: Trends Over Time
+In soccer, a win gives 3 points to a team, a draw one point, and zero points for a loss. Starting from this rule, we analized the average points per game for home teams vs away teams, where again all teams have the same number of games played at home and away, being this number balanced for each season. We can notice that home teams gain, on average, 0.34 points more playing home than away.
+
 
 ## Has Home Advantage Changed Over Time?
 
-```{r season-trends}
-# Ensure Season is treated consistently (some files use 'Season' as string)
-# We'll group by Season (if not present, fall back to year from DateTime)
-if("Season" %in% colnames(df)) {
-  df_season <- df %>% mutate(Season = as.character(Season))
-} else {
-  df_season <- df %>% mutate(Season = year(ymd_hms(DateTime)))
-}
-
-season_summary <- df_points %>%
-  mutate(Season = as.character(Season)) %>%
-  group_by(Season) %>%
+```{r}
+season_summary <- arrange(
   summarize(
+    group_by(
+      mutate(df_points, Season = as.character(Season)),
+      Season
+    ),
     matches = n(),
     pct_home_wins = mean(FTR == "H") * 100,
     avg_home_ppg = mean(home_points, na.rm = TRUE),
     avg_away_ppg = mean(away_points, na.rm = TRUE),
     ppg_diff = avg_home_ppg - avg_away_ppg
-  ) %>%
-  arrange(Season)
+  ),
+  Season
+)
 
 season_summary
 ```
 
-```{r season-plot1, fig.height=4, fig.width=8}
-# Line graph: % home wins per season
+```{r}
 ggplot(season_summary, aes(x = as.integer(substr(Season,1,4)), y = pct_home_wins)) +
   geom_line() + geom_point() +
   labs(title = "% Home Wins per Season", x = "Season (first year)", y = "% Home Wins") +
   theme_minimal()
 ```
 
-```{r season-plot2, fig.height=4, fig.width=8}
-# Line graph: PPG difference over time
+```{r}
 ggplot(season_summary, aes(x = as.integer(substr(Season,1,4)), y = ppg_diff)) +
   geom_line() + geom_point() +
   labs(title = "Difference in Home vs Away PPG per Season (Home - Away)",
@@ -240,32 +234,24 @@ ggplot(season_summary, aes(x = as.integer(substr(Season,1,4)), y = ppg_diff)) +
   theme_minimal()
 ```
 
-“We noticed that home advantage may be shrinking in recent years, especially during COVID-19 seasons.”
+
+We can notice that home advantage has been slightly shrinking in recent years, in both winning percentages and PPG differences, with a drop even below zero during covid-19 impacted seasons.
 
 # T test
 
-```{r t_test_home_advantage, message=FALSE, warning=FALSE}
-# Paired t-test for home vs away win rates
+```{r}
 library(dplyr)
 
-# Create binary win indicators
-df <- df %>%
-  mutate(
-    home_win = ifelse(FTR == "H", 1, 0),
-    away_win = ifelse(FTR == "A", 1, 0)
-  )
+df$home_win <- ifelse(df$FTR == "H", 1, 0)
+df$away_win <- ifelse(df$FTR == "A", 1, 0)
 
-# Calculate win rates for each team
-home_rates <- df %>%
-  group_by(team = HomeTeam) %>%
-  summarise(home_winrate = mean(home_win, na.rm = TRUE))
+home_rates <- aggregate(home_win ~ HomeTeam, data = df, FUN = mean, na.rm = TRUE)
+names(home_rates) <- c("team", "home_winrate")
 
-away_rates <- df %>%
-  group_by(team = AwayTeam) %>%
-  summarise(away_winrate = mean(away_win, na.rm = TRUE))
+away_rates <- aggregate(away_win ~ AwayTeam, data = df, FUN = mean, na.rm = TRUE)
+names(away_rates) <- c("team", "away_winrate")
 
-# Merge and run paired t-test
-team_rates <- inner_join(home_rates, away_rates, by = "team")
+team_rates <- merge(home_rates, away_rates, by = "team")
 
 t_test <- t.test(team_rates$home_winrate,
                  team_rates$away_winrate,
@@ -279,91 +265,62 @@ boxplot(team_rates$home_winrate, team_rates$away_winrate,
         ylab = "Win Rate",
         main = "Premier League: Home vs Away Win Rates")
 
-library(dplyr)
+team_rates$avg_winrate <- (team_rates$home_winrate + team_rates$away_winrate) / 2
+team_rates_sorted <- team_rates[order(team_rates$avg_winrate), ]
+top_teams <- head(team_rates_sorted, 10)
+worst_teams <- tail(team_rates_sorted, 10)
+top_worst_teams <- rbind(top_teams, worst_teams)
 
-# Create binary win indicators
-df <- df %>%
-  mutate(
-    home_win = ifelse(FTR == "H", 1, 0),
-    away_win = ifelse(FTR == "A", 1, 0)
-  )
+top_worst_long_home <- top_worst_teams[, c("team", "home_winrate")]
+top_worst_long_home$location <- "Home"
+names(top_worst_long_home) <- c("team", "winrate", "location")
 
-# Compute home/away win rates per team
-home_rates <- df %>%
-  group_by(team = HomeTeam) %>%
-  summarise(home_winrate = mean(home_win, na.rm = TRUE))
+top_worst_long_away <- top_worst_teams[, c("team", "away_winrate")]
+top_worst_long_away$location <- "Away"
+names(top_worst_long_away) <- c("team", "winrate", "location")
 
-away_rates <- df %>%
-  group_by(team = AwayTeam) %>%
-  summarise(away_winrate = mean(away_win, na.rm = TRUE))
+top_worst_long <- rbind(top_worst_long_home, top_worst_long_away)
 
-# Merge for paired comparison
-team_rates <- inner_join(home_rates, away_rates, by = "team")
+top_worst_long <- merge(top_worst_long, top_worst_teams[, c("team", "avg_winrate")], by = "team")
+top_worst_long <- top_worst_long[order(-top_worst_long$avg_winrate, top_worst_long$location), ]
 
-# Compute win rate differences
-team_rates <- team_rates %>%
-  mutate(diff = home_winrate - away_winrate)
 
-# Identify and remove outliers (1.5 * IQR rule)
-iqr_val <- IQR(team_rates$diff, na.rm = TRUE)
-lower_bound <- quantile(team_rates$diff, 0.25, na.rm = TRUE) - 1.5 * iqr_val
-upper_bound <- quantile(team_rates$diff, 0.75, na.rm = TRUE) + 1.5 * iqr_val
-
-team_rates_clean <- team_rates %>%
-  filter(diff >= lower_bound, diff <= upper_bound)
-
-cat("Removed", nrow(team_rates) - nrow(team_rates_clean), "outlier team(s)\n")
-
-# Run paired t-test on cleaned data
-t_test_clean <- t.test(team_rates_clean$home_winrate,
-                       team_rates_clean$away_winrate,
-                       paired = TRUE,
-                       alternative = "greater")
-
-t_test_clean
-
-boxplot(team_rates_clean$home_winrate, team_rates_clean$away_winrate,
-        names = c("Home", "Away"),
-        ylab = "Clean Win Rate",
-        main = "Premier League: Home vs Away Win Rates")
-
+barplot(
+  top_worst_long$winrate,
+  names.arg = top_worst_long$team,
+  col = ifelse(top_worst_long$location == "Home", "skyblue", "salmon"),
+  ylab = "Win Rate",
+  main = "Top 10 and Worst 10 Teams: Home vs. Away Win Rate",
+  las = 2 # Rotate x-axis labels
+)
+legend("topright",
+       legend = c("Home", "Away"),
+       fill = c("skyblue", "salmon"))
 
 
 ```
 
+We then found 2 win rates for each team, one for the home games and one for the away ones visible in the boxplot above. We also show the same rates for the top ten and worst ten teams by win rates. We can see from both the boxplot and the histogram that an effect is present for a bigger win rate in home games, and that this effect is almost equally present in title contender teams as well as relegation teams. We also ran a T-test on the home win rate and the away win rate, that showed a significant difference between the 2 means, allowing us to affirm that a home advantage effect is present and significant.
 
-# Slide 9: Possible Explanations
 
-## Why Might Home Teams Perform Better?
+# Possible Explanations
 
-- Crowd support and familiarity with pitch
-- Referee bias (unconscious)
-- Travel fatigue for away teams
-- Tactical adjustments at home
+Many factors can contribute to the hom advantage effect, ranging from the crowd, the stadium structure and services, the locker rooms design, the climate (being played outdoor), the travel fatigue, biased referees, or many others. In particular, this dataset allows exploration on referees and cards too, to assess a potential home effect on fouls and sanctions too. 
 
-# Slide 10: Conclusion
 
-## Is There a Real Home Advantage?
+# Conclusion
 
-- Data shows consistent advantage for home teams
-- Higher win rate, more goals, more points
-- Advantage is shrinking slightly over time
-- **Answer:** Yes, but the impact is contextual
+Data shows consistent advantage for home teams, with higher win rates, more goals scored, and more points gained. The t-test confirmed a significant presence of a home-advantage in the English Premier League, but this advantage is shown to be slightly shrinking over time. We can therefore answer affirmatively to our smart question, even though the context and causes of the effect can still be explored.
 
-# Slide 11: Limitations & Future Work
 
-## What Could Be Improved or Expanded?
 
-- Include team strength or ranking to adjust for quality
-- Consider special cases (derbies, weather, stadium size)
-- Look at other leagues for comparison
-- Use modeling for predictive analysis
+# References
 
----
 
-## Appendix: Data checks
+- User "Alvin" *English Premier League (EPL) Results: Premier League Results from 1993-94 to 2021-22* https://www.kaggle.com/datasets/irkaal/english-premier-league-results
+- Bryson, A., Dolton, P., Reade, J. J., Schreyer, D., & Singleton, C. (2021). *Causal effects of an absent crowd on performances and refereeing decisions during COVID-19.* *Economics Letters*, 198, 109664.  
+- Courneya, K. S., & Carron, A. V. (1992). *The home advantage in sport competitions: A literature review.* *Journal of Sport & Exercise Psychology*, 14(1), 13–27.  
+- Nevill, A. M., & Holder, R. L. (1999). *Home advantage in sport: An overview of studies on the advantage of playing at home.* *Sports Medicine*, 28(4), 221–236.  
+- Pollard, R. (2008). *Home advantage in football: A current review of an unsolved puzzle.* *The Open Sports Sciences Journal*, 1, 12–14.  
+- Goumas, C. (2014). *Home advantage in Australian soccer.* *PLoS ONE*, 9(9), e105041.
 
-```{r checks}
-# Missing values overview
-map_df(df, ~sum(is.na(.))) %>% pivot_longer(everything(), names_to="col", values_to="missing")
-```
